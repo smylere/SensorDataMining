@@ -8,6 +8,9 @@ library(jmotif)
 
 # 최초 장비에서 측정되는 데이터 속성 중  x,y,z 초당 변위값 및 백터 내적값만 추출
 # 장비간 차이로 인해 불필요한 데이터가 섞일 경우를 대비해 예외 처리 추가
+
+# x,y,z (3축 센서값), 3축 벡터 내적 값 중 하나를 선택하여 시계열분해를 통해
+# 데이터의 추세 파악 진행
 scale_decompose = function(data,col,freq){
 
     if(length(data) != 12) {data = data[,c(3:6,13)]}
@@ -26,9 +29,21 @@ scale_decompose = function(data,col,freq){
     # tmp = out$x
     # tmp = out$random
 
+    # 추출된 시계열 분해 값 중 추세(trend)를 데이터 분석 시점에서 사용
     tmp = out$trend
 
     tmp[is.na(tmp)] = 0 # NA 값은 0으로 치환 ; 전체 데이터 수준에서 극히 작은값
+
+    # 데이터 군집화 수행
+    # 추출된 시계열 데이터의 추세를 토대로 해당 데이터에서 가장 활동량 값이 적은
+    # (움직이지 않는) 기준 값을 추출하기 위해 kmeans 알고리즘을 적용
+    # 파악해야 하는 속성은 움직임 / 정지 두가지 속성이므로 추출 k군집 중 최하위
+    # 속성값에 대해 움직이지 않는 상태로 정의하고 그 이외의 상태값에 대해 움직임의
+    # 활동값을 가진다고 가정
+    #
+    # 따라서 해당 k군집 추출시점에서 군집제곱합이 가장 잘 나눠지는 기준을 정의(95%)
+    # 정의된 군집 기준에 따라 가장 작은값이 모인 군집을 추출하여 해당 군집 기준에 해당하는
+    # 값에 대해 모두 정지 상태로 정의, 이외의 값에 대해서는 모두 움직임이라고 정의
 
     k = 2
 
@@ -51,14 +66,15 @@ scale_decompose = function(data,col,freq){
     cluster = as.data.frame(km_out$centers)
 
     for (i in 1:length(cluster[,1])){
-
         min_center = min(km_out$centers)
-
-        if(cluster[i,1] == min_center){ cluster[i,2] = "nwk" }
-        else{ cluster[i,2] = "wlk" }
+        if(cluster[i,1] == min_center){ cluster[i,2] = "nwk" } #최소 군집값에 대해 정지(nwk) 라벨 부여
+        else{ cluster[i,2] = "wlk" } # 최소 군집값 이외의 값에는 움직임(wlk) 부여
     }
 
     notwalking_position = which(cluster$V2 == "nwk")
+
+    # 추출된 군집값 라벨 부여이후, 해당 라벨에 대해 초단위로 기록된 값을 다시
+    # 라벨(wlk / nwk)로 치환하여 1차원 벡터로 재정렬
 
     cluster_vector = km_out$cluster
 
@@ -67,6 +83,11 @@ scale_decompose = function(data,col,freq){
         if(cluster_vector[i] == notwalking_position){ cluster_vector[i] = "nwk" }
         else { cluster_vector[i] ="wlk" }
     }
+
+
+    # cluster_vector의 경우 기록된 전체 실제 데이터에 대한 라벨링 처리 이므로
+    # 스케일 조절을 통해 전체 기록값을 백분위 비율로 재구성하는 추가 1차원 vector를
+    # 별로도 따로 계산 및 출력
 
     result = vector()
 
@@ -82,10 +103,14 @@ scale_decompose = function(data,col,freq){
 
     }
 
+    # app.R 단계에서 시각화 적용을 위해 wlk / nwk 값을 1/2로 재치환
     plotting_cluster = cluster_vector
     plotting_cluster = gsub("nwk",1,plotting_cluster)
     plotting_cluster = gsub("wlk",2,plotting_cluster)
     plotting_cluster = as.numeric(plotting_cluster)
+
+    # 백분위 비율로 계산된 wlk / nwk 비율을 시각화 하기 위해 따로 치환하여
+    # return으로 부여
 
     plotting_cluster2 = result #최초 데이터에 대해 최종적으로 스케일 조정된 변수
     plotting_cluster2 = gsub("nwk",1,plotting_cluster2) # 라벨 변경
@@ -102,6 +127,10 @@ scale_decompose = function(data,col,freq){
                 sax_data = data))
 }
 
+# 관측 데이터에 대해 원본 값 적용 대신 minmax 표준화 적용 로직을 별도로 부여
+# 아울러 minmax 표준화 적용 및 paa 시계열 패턴화 함수도 같이 적용
+# (ui 분석 시점에서 적용 가능한 별도 함수)
+
 patternScale = function(data,idx,scale) {
 
     minmax = function(attr) {(attr -min(attr)) / (max(attr) - min(attr))}
@@ -116,6 +145,13 @@ patternScale = function(data,idx,scale) {
     return(out)
 
 }
+
+
+# 최초에는 paa 알고리즘을 통해 sax 알고리즘을 적용하기 위한 로직이였으나
+# 이후 요구조건에 의해 센서데이터 측정 시작 이후 최초로 관측대상자가 움직임을 정지하는
+# 시점을 탐색하기 위한 로직으로 변경
+# 전체 관측 시간을 t+1 시점씩 search 하여 wlk 가 10초중 8초 이상 잡히지 않는 구간에 대해
+# 최초 정지 시점으로 정의하고 그 시점을 파악하기 위한 추가 로직을 구현
 
 sax_process = function(data) {
 
