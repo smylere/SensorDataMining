@@ -117,7 +117,8 @@ server = function(input, output) {
     if (isTRUE(data[1,2])){return (data)}
 
     else {
-        data = read.csv(infile$datapath,stringsAsFactors = FALSE,skip = 10)
+        # data = read.csv(infile$datapath,stringsAsFactors = FALSE,skip = 10)
+        data = read.csv(infile$datapath,stringsAsFactors = FALSE)
         return (data)
     }
 
