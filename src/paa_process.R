@@ -1,3 +1,5 @@
+# data_scale.R 코드에 모두 병합, 현 시점에서는 사용되지 않음
+
 # 170812 서버 연동을 위해 sax_process 함수 수정
 # 170811 최초 작성
 # ex) stop_walking(tmp,10,0.8)
